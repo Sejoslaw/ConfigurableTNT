@@ -2,6 +2,7 @@ package com.github.sejoslaw.configurabletnt;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.item.ItemEntity;
@@ -20,25 +21,25 @@ import net.minecraft.world.dimension.DimensionType;
 import java.util.*;
 
 public class ConfiguredExplosion extends Explosion {
-    private final World world;
-    private final Entity exploder;
-    private final Random random = new Random();
-    private final DamageSource damageSource;
-    private final List<EntityDamage> entitiesInRange = new ArrayList<>();
-    private final long[][] destroyedBlockPositions;
+    public final World world;
+    public final Entity exploder;
+    public final Random random = new Random();
+    public final DamageSource damageSource;
+    public final List<EntityDamage> entitiesInRange = new ArrayList<>();
+    public final long[][] destroyedBlockPositions;
 
-    private final double explosionX;
-    private final double explosionY;
-    private final double explosionZ;
-    private final double maxDistance;
+    public final double explosionX;
+    public final double explosionY;
+    public final double explosionZ;
+    public final double maxDistance;
 
-    private final float power;
-    private final float explosionDropRate = 0.1f;
+    public final float power;
+    public final float explosionDropRate = 0.1f;
 
-    private final int mapHeight;
-    private final int areaSize;
-    private final int areaX;
-    private final int areaZ;
+    public final int mapHeight;
+    public final int areaSize;
+    public final int areaX;
+    public final int areaZ;
 
     private static class XZposition {
         int x;
@@ -102,8 +103,12 @@ public class ConfiguredExplosion extends Explosion {
         }
     }
 
-    public ConfiguredExplosion(ExplosionBlockMetadata meta) {
-        this(meta.world, meta.entity, meta.position.getX(), meta.position.getY(), meta.position.getZ(), meta.power, true, Mode.DESTROY);
+//    public ConfiguredExplosion(ExplosionBlockMetadata meta) {
+//        this(meta.world, meta.entity, meta.position.getX(), meta.position.getY(), meta.position.getZ(), meta.power, true, Mode.DESTROY);
+//    }
+
+    public ConfiguredExplosion(World world, Entity entity, BlockPos position, float power, boolean flaming, Mode mode) {
+        this(world, entity, position.getX(), position.getY(), position.getZ(), power, flaming, mode);
     }
 
     public ConfiguredExplosion(World world, Entity entity, double x, double y, double z, float power, boolean flaming, Mode mode) {
@@ -241,16 +246,17 @@ public class ConfiguredExplosion extends Explosion {
                                 DropData data = map.get(stack);
 
                                 if (data == null) {
-                                    data = new DropData(ItemStackUtil.getStackSize(stack), y);
+                                    data = new DropData(stack.getCount(), y);
                                     map.put(stack.copy(), data);
                                 } else {
-                                    data.add(ItemStackUtil.getStackSize(stack), y);
+                                    data.add(stack.getCount(), y);
                                 }
                             }
                         }
                     }
 
-                    block.onBlockExploded(this.world, tmpPos, this);
+                    BlockState tmpState = this.world.getBlockState(tmpPos);
+                    block.onBlockExploded(tmpState, this.world, tmpPos, this);
                 }
             }
         }
@@ -266,14 +272,15 @@ public class ConfiguredExplosion extends Explosion {
 
                 while (count > 0) {
                     int stackSize = Math.min(count, 64);
-                    EntityItem entityitem = new EntityItem(this.world,
+                    ItemEntity entityitem = new ItemEntity(this.world,
                             (xZposition.x + this.world.rand.nextFloat()) * 2.0F,
                             ((DropData) entry2.getValue()).maxY + 0.5D,
                             (xZposition.z + this.world.rand.nextFloat()) * 2.0F, isw);
 
                     entityitem.setDefaultPickupDelay();
 
-                    this.world.spawnEntity(entityitem);
+                    this.world.addEntity(entityitem);
+//                    this.world.spawnEntity(entityitem);
                     count -= stackSize;
                 }
             }
@@ -291,7 +298,7 @@ public class ConfiguredExplosion extends Explosion {
         long[] array = this.destroyedBlockPositions[y];
 
         if (array == null) {
-            array = makeArray(ExplosionUtil.square(this.areaSize), 2);
+            array = makeArray(square(this.areaSize), 2);
             this.destroyedBlockPositions[y] = array;
         }
 
@@ -309,17 +316,18 @@ public class ConfiguredExplosion extends Explosion {
         double deltaZ = Math.sin(theta) * Math.sin(phi);
 
         for (int step = 0;; step++) {
-            int blockY = ExplosionUtil.roundToNegInf(y);
+            int blockY = roundToNegInf(y);
 
             if ((blockY < 0) || (blockY >= this.mapHeight)) {
                 break;
             }
 
-            int blockX = ExplosionUtil.roundToNegInf(x);
-            int blockZ = ExplosionUtil.roundToNegInf(z);
+            int blockX = roundToNegInf(x);
+            int blockZ = roundToNegInf(z);
 
             tmpPos.setPos(blockX, blockY, blockZ);
-            IBlockState state = this.chunkCache.getBlockState(tmpPos);
+//            BlockState state = this.chunkCache.getBlockState(tmpPos);
+            BlockState state = this.world.getBlockState(tmpPos);
             Block block = state.getBlock();
             double absorption = getAbsorption(block, tmpPos);
 
@@ -370,10 +378,11 @@ public class ConfiguredExplosion extends Explosion {
             return ret;
         }
 
-        if ((block == Blocks.WATER) || (block == Blocks.FLOWING_WATER)) {
+        if (block == Blocks.WATER) {
             ret += 1.0D;
         } else {
-            float resistance = block.getExplosionResistance(this.world, pos, this.exploder, this);
+            BlockState state = this.world.getBlockState(pos);
+            float resistance = block.getExplosionResistance(state, this.world, pos, this.exploder, this);
 
             if (resistance < 0.0F) {
                 return resistance;
@@ -390,7 +399,7 @@ public class ConfiguredExplosion extends Explosion {
         int index;
 
         if (step != 4) {
-            int distanceMin = ExplosionUtil.square(step - 5);
+            int distanceMin = square(step - 5);
             int indexStart = 0;
             int indexEnd = this.entitiesInRange.size() - 1;
 
@@ -410,7 +419,7 @@ public class ConfiguredExplosion extends Explosion {
             index = 0;
         }
 
-        int distanceMax = ExplosionUtil.square(step + 5);
+        int distanceMax = square(step + 5);
 
         for (int i = index; i < this.entitiesInRange.size(); i++) {
             EntityDamage entry = this.entitiesInRange.get(i);
@@ -421,8 +430,8 @@ public class ConfiguredExplosion extends Explosion {
 
             Entity entity = entry.entity;
 
-            if (ExplosionUtil.square(entity.posX - x) + ExplosionUtil.square(entity.posY - y)
-                    + ExplosionUtil.square(entity.posZ - z) > 25.0D) {
+            if (square(entity.posX - x) + square(entity.posY - y)
+                    + square(entity.posZ - z) > 25.0D) {
                 continue;
             }
 
@@ -447,7 +456,7 @@ public class ConfiguredExplosion extends Explosion {
 
             entity.attackEntityFrom(this.damageSource, (float) entry.damage);
 
-            if (entity.isEntityAlive()) {
+            if (entity.isAlive()) {
                 continue;
             }
 
@@ -457,7 +466,7 @@ public class ConfiguredExplosion extends Explosion {
     }
 
     private static double getEntityHealth(Entity entity) {
-        if (entity instanceof EntityItem) {
+        if (entity instanceof ItemEntity) {
             return 5.0D;
         }
 

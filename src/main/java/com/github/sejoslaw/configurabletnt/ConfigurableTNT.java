@@ -6,6 +6,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.Explosion;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.BlockSnapshot;
@@ -21,13 +22,7 @@ import java.util.Set;
 public class ConfigurableTNT {
     public static final String MODID = "configurabletnt";
 
-    /**
-     * Id: World Id
-     * Value:
-     *      Id: TNT Block Position
-     *      Value: Radius
-     */
-    private static Set<ExplosionBlockMetadata> EXPLOSION_BLOCKS = new HashSet<>();
+    private static Set<ConfiguredExplosion> EXPLOSIONS = new HashSet<>();
 
     public ConfigurableTNT() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -43,17 +38,22 @@ public class ConfigurableTNT {
 
         PlayerEntity player = (PlayerEntity) entity;
         ItemStack tntStack = this.getTntStack(player);
+
+        if (tntStack.getItem() != Items.TNT) {
+            return;
+        }
+
         float power = this.getPowerFromName(tntStack);
 
-//        if (power < 0) {
-//            power = 1;
-//        }
+        if (power < 0) {
+            power = 1;
+        }
 
         BlockSnapshot snapshot = event.getBlockSnapshot();
         World world = snapshot.getWorld().getWorld();
         BlockPos tntPosition = snapshot.getPos();
 
-        EXPLOSION_BLOCKS.add(new ExplosionBlockMetadata(world, entity, tntPosition, power));
+        EXPLOSIONS.add(new ConfiguredExplosion(world, entity, tntPosition, power, true, Explosion.Mode.DESTROY));
     }
 
     @SubscribeEvent
@@ -61,20 +61,17 @@ public class ConfigurableTNT {
         World world = event.getWorld();
         BlockPos position = new BlockPos(event.getExplosion().getPosition());
 
-        ExplosionBlockMetadata meta = EXPLOSION_BLOCKS.stream().filter(m -> m.world == world && m.position == position).findFirst().get();
+        ConfiguredExplosion configuredExplosion = EXPLOSIONS
+                .stream()
+                .filter(x -> x.world == world && this.isTheSamePosition(new BlockPos(x.getPosition()), position))
+                .findAny()
+                .orElse(new ConfiguredExplosion(world, event.getExplosion().getExplosivePlacedBy(), position, 1.0f, true, Explosion.Mode.DESTROY));
 
-        new ConfiguredExplosion(meta).doExplosion();
+        configuredExplosion.doExplosion();
+        EXPLOSIONS.remove(configuredExplosion);
+
+        event.setCanceled(true);
     }
-
-//    @SubscribeEvent
-//    public void onWorldSave(WorldEvent.Save event) {
-//        // TODO: 3. Save placed TNT positions
-//    }
-//
-//    @SubscribeEvent
-//    public void onWorldLoad(WorldEvent.Load event) {
-//        // TODO: 4. Load placed TNT positions
-//    }
 
     private ItemStack getTntStack(PlayerEntity player) {
         if (player.getHeldItem(Hand.MAIN_HAND).getItem() == Items.TNT) {
@@ -85,7 +82,7 @@ public class ConfigurableTNT {
             return player.getHeldItem(Hand.OFF_HAND);
         }
 
-        return null;
+        return ItemStack.EMPTY;
     }
 
     private float getPowerFromName(ItemStack stack) {
@@ -94,5 +91,9 @@ public class ConfigurableTNT {
         } catch (Exception ex) {
             return 1;
         }
+    }
+
+    private boolean isTheSamePosition(BlockPos position1, BlockPos position2) {
+        return true; // TODO: Add appropriate logic
     }
 }
