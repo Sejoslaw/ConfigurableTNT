@@ -41,4 +41,8 @@ authors="Sejoslaw" #optional
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
+How it works ?
+1. Craft TNT...
+2. Rename the Block (Stack) to contain a positive number as a display name. This will be used as a new radius for a custom explosion.
+3. Detonate TNT and have fun ^^
 '''
