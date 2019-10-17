@@ -6,6 +6,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Explosion;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
@@ -17,6 +18,7 @@ import net.minecraftforge.fml.common.Mod;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Mod(ConfigurableTNT.MODID)
 public class ConfigurableTNT {
@@ -44,29 +46,30 @@ public class ConfigurableTNT {
         }
 
         float power = this.getPowerFromName(tntStack);
-
-        if (power < 0) {
-            power = 1;
-        }
-
         BlockSnapshot snapshot = event.getBlockSnapshot();
         World world = snapshot.getWorld().getWorld();
         BlockPos tntPosition = snapshot.getPos();
+        ConfiguredExplosion configuredExplosion = new ConfiguredExplosion(world, entity, tntPosition, power, true, Explosion.Mode.DESTROY);
 
-        EXPLOSIONS.add(new ConfiguredExplosion(world, entity, tntPosition, power, true, Explosion.Mode.DESTROY));
+        this.removePreviouslyPlacedBlock(configuredExplosion);
+
+        EXPLOSIONS.add(configuredExplosion);
     }
 
     @SubscribeEvent
     public void onExplosionStart(ExplosionEvent.Start event) {
         World world = event.getWorld();
-        BlockPos position = new BlockPos(event.getExplosion().getPosition());
+        Explosion explosion = event.getExplosion();
+        Vec3d position = explosion.getPosition();
+        BlockPos explosionPosition = new BlockPos((double)((float)position.getX() + 0.5F), (double)position.getY(), (double)((float)position.getZ() + 0.5F));
 
         ConfiguredExplosion configuredExplosion = EXPLOSIONS
                 .stream()
-                .filter(x -> x.world == world && this.isTheSamePosition(new BlockPos(x.getPosition()), position))
+                .filter(x -> x.world == world && new BlockPos(x.getPosition()).equals(explosionPosition))
                 .findAny()
-                .orElse(new ConfiguredExplosion(world, event.getExplosion().getExplosivePlacedBy(), position, 1.0f, true, Explosion.Mode.DESTROY));
+                .orElse(new ConfiguredExplosion(world, explosion.getExplosivePlacedBy(), explosionPosition, 1.0f, true, Explosion.Mode.DESTROY));
 
+        configuredExplosion.setNewExplosionPosition(explosionPosition.getX(), explosionPosition.getY(), explosionPosition.getZ());
         configuredExplosion.doExplosion();
         EXPLOSIONS.remove(configuredExplosion);
 
@@ -86,14 +89,20 @@ public class ConfigurableTNT {
     }
 
     private float getPowerFromName(ItemStack stack) {
+        float power = 1;
+
         try {
-            return Float.parseFloat(stack.getDisplayName().getString());
-        } catch (Exception ex) {
-            return 1;
+            power = Float.parseFloat(stack.getDisplayName().getString());
+        } finally {
+            return power;
         }
     }
 
-    private boolean isTheSamePosition(BlockPos position1, BlockPos position2) {
-        return true; // TODO: Add appropriate logic
+    private void removePreviouslyPlacedBlock(ConfiguredExplosion configuredExplosion) {
+        Set<ConfiguredExplosion> copies = EXPLOSIONS.stream()
+                .filter(x -> x.equals(configuredExplosion))
+                .collect(Collectors.toSet());
+
+        copies.forEach(x -> EXPLOSIONS.remove(x));
     }
 }
