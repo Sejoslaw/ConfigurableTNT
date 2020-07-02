@@ -1,5 +1,6 @@
 package com.github.sejoslaw.configurabletnt;
 
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
@@ -51,7 +52,12 @@ public class ConfigurableTNT {
         BlockPos tntPosition = snapshot.getPos();
         ConfiguredExplosion configuredExplosion = new ConfiguredExplosion(world, entity, tntPosition, power, true, Explosion.Mode.DESTROY);
 
-        this.removePreviouslyPlacedBlock(configuredExplosion);
+        Set<ConfiguredExplosion> copies = EXPLOSIONS
+                .stream()
+                .filter(x -> x.equals(configuredExplosion))
+                .collect(Collectors.toSet());
+
+        copies.forEach(x -> EXPLOSIONS.remove(x));
 
         EXPLOSIONS.add(configuredExplosion);
     }
@@ -61,19 +67,39 @@ public class ConfigurableTNT {
         World world = event.getWorld();
         Explosion explosion = event.getExplosion();
         Vec3d position = explosion.getPosition();
-        BlockPos explosionPosition = new BlockPos((double)((float)position.getX() + 0.5F), (double)position.getY(), (double)((float)position.getZ() + 0.5F));
 
-        ConfiguredExplosion configuredExplosion = EXPLOSIONS
-                .stream()
-                .filter(x -> x.world == world && new BlockPos(x.getPosition()).equals(explosionPosition))
-                .findAny()
-                .orElse(new ConfiguredExplosion(world, explosion.getExplosivePlacedBy(), explosionPosition, 1.0f, true, Explosion.Mode.DESTROY));
-
-        configuredExplosion.setNewExplosionPosition(explosionPosition.getX(), explosionPosition.getY(), explosionPosition.getZ());
+        ConfiguredExplosion configuredExplosion = this.findExplosion(world, explosion, position);
         configuredExplosion.doExplosion();
+
         EXPLOSIONS.remove(configuredExplosion);
 
         event.setCanceled(true);
+    }
+
+    private ConfiguredExplosion findExplosion(World world, Explosion explosion, Vec3d position) {
+        ConfiguredExplosion configuredExplosion = null;
+
+        for (int x = -1; x <= 1; ++x) {
+            for (int y = -1; y <= 1; ++y) {
+                for (int z = -1; z <= 1; ++z) {
+                    BlockPos configuredExplosionPotentialPosition = new BlockPos(position.getX() + x, position.getY() + y, position.getZ() + z);
+
+                    configuredExplosion = EXPLOSIONS
+                            .stream()
+                            .filter(exp -> exp.world == world &&
+                                    new BlockPos(exp.getPosition()).equals(configuredExplosionPotentialPosition) &&
+                                    world.getBlockState(configuredExplosionPotentialPosition).getBlock() == Blocks.AIR)
+                            .findAny()
+                            .orElse(null);
+
+                    if (configuredExplosion != null) {
+                        return configuredExplosion;
+                    }
+                }
+            }
+        }
+
+        return new ConfiguredExplosion(world, explosion.getExplosivePlacedBy(), new BlockPos(position), 1.0f, true, Explosion.Mode.DESTROY);
     }
 
     private ItemStack getTntStack(PlayerEntity player) {
@@ -96,13 +122,5 @@ public class ConfigurableTNT {
         } finally {
             return power;
         }
-    }
-
-    private void removePreviouslyPlacedBlock(ConfiguredExplosion configuredExplosion) {
-        Set<ConfiguredExplosion> copies = EXPLOSIONS.stream()
-                .filter(x -> x.equals(configuredExplosion))
-                .collect(Collectors.toSet());
-
-        copies.forEach(x -> EXPLOSIONS.remove(x));
     }
 }
