@@ -8,18 +8,22 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.DamageSource;
+import net.minecraft.util.RegistryKey;
 import net.minecraft.util.SoundCategory;
 import net.minecraft.util.SoundEvents;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.world.Explosion;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.World;
-import net.minecraft.world.dimension.DimensionType;
+import net.minecraft.world.server.ServerWorld;
 
 import java.util.*;
 
+/**
+ * @author Sejoslaw - https://github.com/Sejoslaw
+ */
 public class ConfiguredExplosion extends Explosion {
     public final World world;
     public final Entity exploder;
@@ -106,7 +110,7 @@ public class ConfiguredExplosion extends Explosion {
     }
 
     public ConfiguredExplosion(World world, Entity entity, double x, double y, double z, float power, boolean flaming, Mode mode) {
-        super(world, entity, x, y, z, power, flaming, mode);
+        super(world, entity, null, null, x, y, z, power, flaming, mode);
 
         this.world = world;
         this.exploder = entity;
@@ -133,13 +137,6 @@ public class ConfiguredExplosion extends Explosion {
         this.explosionZ = z;
     }
 
-    public boolean equals(ConfiguredExplosion explosion) {
-        return this.explosionX == explosion.explosionX &&
-                this.explosionY == explosion.explosionY &&
-                this.explosionZ == explosion.explosionZ &&
-                this.world.getDimension().getType().getId() == explosion.world.getDimension().getType().getId();
-    }
-
     public void doExplosion() {
         if (this.power <= 0.0F) {
             this.power = 1;
@@ -155,9 +152,7 @@ public class ConfiguredExplosion extends Explosion {
 
         for (Entity entity : entities) {
             if (((entity instanceof LivingEntity)) || ((entity instanceof ItemEntity))) {
-                int distance = (int) (square(entity.getPosX() - this.explosionX)
-                        + square(entity.getPosY() - this.explosionY)
-                        + square(entity.getPosZ() - this.explosionZ));
+                int distance = (int) (square(entity.getPosX() - this.explosionX) + square(entity.getPosY() - this.explosionY) + square(entity.getPosZ() - this.explosionZ));
                 double health = getEntityHealth(entity);
 
                 this.entitiesInRange.add(new EntityDamage(entity, distance, health));
@@ -167,11 +162,7 @@ public class ConfiguredExplosion extends Explosion {
         boolean entitiesAreInRange = !this.entitiesInRange.isEmpty();
 
         if (entitiesAreInRange) {
-            Collections.sort(this.entitiesInRange, new Comparator<Object>() {
-                public int compare(Object a, Object b) {
-                    return ((EntityDamage) a).distance - ((EntityDamage) b).distance;
-                }
-            });
+            this.entitiesInRange.sort(Comparator.comparingInt(entityDamage -> entityDamage.distance));
         }
 
         int steps = (int) Math.ceil(Math.PI / Math.atan(1.0D / this.maxDistance));
@@ -182,8 +173,7 @@ public class ConfiguredExplosion extends Explosion {
                 double phi = 6.283185307179586D / steps * phiN;
                 double theta = Math.PI / steps * thetaN;
 
-                this.shootRay(this.explosionX, this.explosionY, this.explosionZ, phi, theta, this.power,
-                        (entitiesAreInRange) && (phiN % 8 == 0) && (thetaN % 8 == 0), tmpPos);
+                this.shootRay(this.explosionX, this.explosionY, this.explosionZ, phi, theta, this.power, (entitiesAreInRange) && (phiN % 8 == 0) && (thetaN % 8 == 0), tmpPos);
             }
         }
 
@@ -194,18 +184,16 @@ public class ConfiguredExplosion extends Explosion {
 
             double motionSquare = square(entity.getMotion().getX()) + square(entity.getMotion().getY()) + square(entity.getMotion().getZ());
             double reduction = motionSquare > 3600.0D ? Math.sqrt(3600.0D / motionSquare) : 1.0D;
-            Vec3d newMotion = entity.getMotion().add(entityDamage.motionX * reduction, entityDamage.motionY * reduction, entityDamage.motionZ * reduction);
+            Vector3d newMotion = entity.getMotion().add(entityDamage.motionX * reduction, entityDamage.motionY * reduction, entityDamage.motionZ * reduction);
 
             entity.setMotion(newMotion);
         }
 
-        Random worldRandom = this.world.rand;
-        boolean doDrops = this.world.getGameRules().getBoolean(new GameRules.RuleKey<>("doTileDrops"));
+        Random worldRandom = this.world.getRandom();
+        boolean doDrops = this.world.getWorldInfo().getGameRulesInstance().getBoolean(GameRules.DO_TILE_DROPS);
         Map<PositionXZ, Map<ItemStack, DropData>> blocksToDrop = new HashMap<>();
 
-        this.world.playSound(null, this.explosionX, this.explosionY, this.explosionZ,
-                SoundEvents.ENTITY_GENERIC_EXPLODE, SoundCategory.BLOCKS, 4.0F,
-                (1.0F + (worldRandom.nextFloat() - worldRandom.nextFloat()) * 0.2F) * 0.7F);
+        this.world.playSound(null, new BlockPos(this.explosionX, this.explosionY, this.explosionZ), SoundEvents.ENTITY_GENERIC_EXPLODE, SoundCategory.BLOCKS, 4.0F, (1.0F + (worldRandom.nextFloat() - worldRandom.nextFloat()) * 0.2F) * 0.7F);
 
         int realIndex;
 
@@ -229,10 +217,10 @@ public class ConfiguredExplosion extends Explosion {
                     BlockState state = this.world.getBlockState(tmpPos);
                     Block block = state.getBlock();
 
-                    if ((this.power >= 20.0F) || ((doDrops) && (block.canDropFromExplosion(this))
-                            && (getAtIndex(index, bitSet, 2) == 1))) {
-                        DimensionType dimensionType = this.world.getDimension().getType();
-                        List<ItemStack> drops = state.getBlock().getDrops(state, this.world.getServer().getWorld(dimensionType), tmpPos, null);
+                    if ((this.power >= 20.0F) || ((doDrops) && (block.canDropFromExplosion(this)) && (getAtIndex(index, bitSet, 2) == 1))) {
+                        RegistryKey<World> key = this.world.getDimensionKey();
+                        ServerWorld serverWorld = this.world.getServer().getWorld(key);
+                        List<ItemStack> drops = state.getBlock().getDrops(state, serverWorld, tmpPos, null);
 
                         for (ItemStack stack : drops) {
                             if (worldRandom.nextFloat() <= this.explosionDropRate) {
@@ -268,10 +256,7 @@ public class ConfiguredExplosion extends Explosion {
 
                 while (entryStackSize > 0) {
                     int stackSize = Math.min(entryStackSize, 64);
-                    ItemEntity itemEntity = new ItemEntity(this.world,
-                            (positionXZ.x + this.world.rand.nextFloat()) * 2.0F,
-                            ((DropData) entry.getValue()).maxY + 0.5D,
-                            (positionXZ.z + this.world.rand.nextFloat()) * 2.0F, entryStack);
+                    ItemEntity itemEntity = new ItemEntity(this.world, (positionXZ.x + this.world.rand.nextFloat()) * 2.0F, entry.getValue().maxY + 0.5D, (positionXZ.z + this.world.rand.nextFloat()) * 2.0F, entryStack);
 
                     itemEntity.setDefaultPickupDelay();
                     this.world.addEntity(itemEntity);
@@ -280,10 +265,6 @@ public class ConfiguredExplosion extends Explosion {
                 }
             }
         }
-    }
-
-    private void destroy(int x, int y, int z, boolean noDrop) {
-        destroyUnchecked(x, y, z, noDrop);
     }
 
     private void destroyUnchecked(int x, int y, int z, boolean noDrop) {
@@ -307,7 +288,7 @@ public class ConfiguredExplosion extends Explosion {
         double deltaY = Math.cos(theta);
         double deltaZ = Math.sin(theta) * Math.sin(phi);
 
-        for (int step = 0;; step++) {
+        for (int step = 0; ; step++) {
             int blockY = roundToNegInf(y);
 
             if ((blockY < 0) || (blockY >= this.mapHeight)) {
@@ -345,8 +326,7 @@ public class ConfiguredExplosion extends Explosion {
 
             if (absorption > 10.0D) {
                 for (int i = 0; i < 5; ++i) {
-                    this.shootRay(x, y, z, this.random.nextDouble() * 2.0D * Math.PI,
-                            this.random.nextDouble() * Math.PI, absorption * 0.4D, false, tmpPos);
+                    this.shootRay(x, y, z, this.random.nextDouble() * 2.0D * Math.PI, this.random.nextDouble() * Math.PI, absorption * 0.4D, false, tmpPos);
                 }
             }
 
@@ -374,7 +354,7 @@ public class ConfiguredExplosion extends Explosion {
             ret += 1.0D;
         } else {
             BlockState state = this.world.getBlockState(pos);
-            float resistance = block.getExplosionResistance(state, this.world, pos, this.exploder, this);
+            float resistance = block.getExplosionResistance(state, this.world, pos, this);
 
             if (resistance < 0.0F) {
                 return resistance;
@@ -450,6 +430,7 @@ public class ConfiguredExplosion extends Explosion {
             }
 
             this.entitiesInRange.remove(i);
+
             i--;
         }
     }
@@ -459,7 +440,7 @@ public class ConfiguredExplosion extends Explosion {
             return 5.0D;
         }
 
-        return (1.0D / 0.0D);
+        return 1.0D;
     }
 
     private static long[] makeArray(int size, int step) {
